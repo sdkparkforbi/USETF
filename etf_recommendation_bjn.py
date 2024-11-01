@@ -10,6 +10,7 @@ from io import StringIO
 import requests
 import warnings
 from bs4 import BeautifulSoup
+import os 
 
 # 경고 메시지 무시 설정
 warnings.filterwarnings("ignore")
