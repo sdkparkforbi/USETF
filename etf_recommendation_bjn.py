@@ -17,7 +17,6 @@ warnings.filterwarnings("ignore")
 
 # 나눔 폰트 설정
 font_path = os.path.join(os.path.dirname(__file__), 'NanumGothic.ttf')
-# font_path = 'C:/Windows/Fonts/NanumGothic.ttf'  # 폰트 파일 경로
 font_prop = fm.FontProperties(fname=font_path)  # 폰트 속성 설정
 plt.rcParams['font.family'] = 'NanumGothic'  # 그래프의 기본 폰트 설정
 plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
@@ -25,12 +24,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
 # Streamlit 설정
 st.set_page_config(layout="centered")  # 레이아웃을 중앙 정렬로 설정
 st.markdown("<h1 style='font-size:32px; text-align: center;'>ETF 분석 및 ChatGPT 투자 조언</h1>", unsafe_allow_html=True)
-
 st.markdown("### ETF List 종목 확인")
-
-# 인터넷이 안되는 경우
-# file_path='active_etf_df.xlsx'
-# active_etf_df = pd.read_excel(file_path)
 
 # Alpha Vantage API 키 입력
 api_key = st.secrets["AV_API_KEY"]
@@ -245,7 +239,6 @@ fractional_trading_title, fractional_trading_content = get_blog_content(fraction
 # 7. 증거금 비율
 margin_ratio_url = "http://blog.naver.com/jung2598123/223613721912"
 margin_ratio_title, margin_ratio_content = get_blog_content(margin_ratio_url)
-
 
 # GPT 프롬프트 생성
 prompt = f"""
