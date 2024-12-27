@@ -54,6 +54,21 @@ active_etf_df = etf_df[etf_df['status'] == 'Active']
 # ETF 선택
 etf_symbol = st.selectbox("ETF 종목을 선택하세요:", active_etf_df['symbol'])
 
+if "current_symbol" not in st.session_state:
+    st.session_state["current_symbol"] = ""
+
+if "current_response" not in st.session_state:
+    st.session_state["current_response"] = ""
+
+if etf_symbol != st.session_state["current_symbol"]:
+    st.session_state["current_symbol"] = etf_symbol  # 선택된 종목 업데이트
+    chatgpt_response = ask_chatgpt(prompt)  # ChatGPT 호출
+    st.session_state["current_response"] = chatgpt_response  # 응답 저장
+    tts(chatgpt_response)  # TTS 갱신
+else:
+    st.write("현재 선택된 종목에 대한 정보를 표시합니다.")
+    tts(st.session_state["current_response"])  # 기존 응답 재생
+
 url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol }&apikey={api_key}'
 r = requests.get(url)
 data = r.json()
