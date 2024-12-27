@@ -338,4 +338,4 @@ def tts(response_text):
     os.remove(filename)
 
 # ChatGPT 응답을 음성으로 재생
-tts(chatgpt_response)
+# tts(chatgpt_response)
