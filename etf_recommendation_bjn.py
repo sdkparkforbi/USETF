@@ -17,7 +17,7 @@ from gtts import gTTS
 # 경고 메시지 무시 설정
 warnings.filterwarnings("ignore")
 
-# ========== 인기 ETF 목록 (API 대신 사용) ==========
+# ========== 인기 ETF 목록 ==========
 
 POPULAR_ETFS = {
     'SPY': 'SPDR S&P 500 ETF Trust',
@@ -149,26 +149,22 @@ def get_blog_content(web_url):
         return None, f"블로그 크롤링 에러: {e}"
 
 
-def tts(response_text):
-    """TTS: 텍스트를 음성으로 변환하여 Streamlit 페이지에 표시"""
+def generate_tts_audio(text, symbol):
+    """TTS 오디오 생성 및 base64 반환"""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            tts_obj = gTTS(text=response_text, lang="ko")
+            tts_obj = gTTS(text=text, lang="ko")
             tts_obj.save(fp.name)
             
             with open(fp.name, "rb") as f:
-                data = f.read()
-                b64 = base64.b64encode(data).decode()
-                audio_html = f"""
-                    <audio autoplay="True" controls>
-                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-                    </audio>
-                """
-                st.markdown(audio_html, unsafe_allow_html=True)
+                audio_data = f.read()
+                b64 = base64.b64encode(audio_data).decode()
             
             os.unlink(fp.name)
+            return b64
     except Exception as e:
         st.error(f"음성 변환 에러: {e}")
+        return None
 
 
 # ========== 메인 앱 시작 ==========
@@ -194,6 +190,16 @@ etf_symbol = st.selectbox(
     etf_symbols,
     format_func=lambda x: f"{x} - {POPULAR_ETFS[x]}"
 )
+
+# 세션 상태 초기화 - ETF 변경 감지
+if 'current_etf' not in st.session_state:
+    st.session_state.current_etf = etf_symbol
+    st.session_state.audio_data = None
+
+# ETF가 변경되면 오디오 데이터 초기화
+if st.session_state.current_etf != etf_symbol:
+    st.session_state.current_etf = etf_symbol
+    st.session_state.audio_data = None
 
 # Alpha Vantage ETF 프로필
 url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol}&apikey={api_key}'
@@ -290,7 +296,7 @@ st.dataframe(annualized_returns_df)
 # ETF 정보 수집 (Alpha Vantage 데이터 활용)
 dividends = get_dividend_data(etf_symbol)
 
-# Alpha Vantage 데이터에서 정보 추출 (데이터 없으면 기본값 사용)
+# Alpha Vantage 데이터에서 정보 추출
 etf_name = av_data.get('name', POPULAR_ETFS.get(etf_symbol, etf_symbol))
 expense_ratio = av_data.get('net_expense_ratio', None)
 dividend_yield = av_data.get('dividend_yield', None)
@@ -432,9 +438,20 @@ chatgpt_response = ask_chatgpt(prompt)
 st.subheader("ChatGPT 응답")
 st.write(chatgpt_response)
 
-# ChatGPT 응답을 음성으로 재생
-tts(chatgpt_response)
+# 음성 재생 버튼
+st.subheader("🔊 음성으로 듣기")
 
+if st.button(f"▶️ {etf_symbol} 분석 음성 재생", key=f"tts_button_{etf_symbol}"):
+    with st.spinner("음성을 생성하고 있습니다..."):
+        audio_b64 = generate_tts_audio(chatgpt_response, etf_symbol)
+        if audio_b64:
+            audio_html = f"""
+                <audio autoplay controls>
+                <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
+                </audio>
+            """
+            st.markdown(audio_html, unsafe_allow_html=True)
+            st.success(f"✅ {etf_symbol} 분석 음성이 재생됩니다.")
 
 
 
