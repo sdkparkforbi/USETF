@@ -84,7 +84,9 @@ def calculate_dividend_frequency(dividends):
 # ETF 티커 데이터 가져오기
 ticker = yf.Ticker(etf_symbol)
 etf_data = ticker.history(period="max", interval='1mo')
-etf_data.index = etf_data.index.tz_localize(None)
+
+etf_data.index = etf_data.index.tz_convert(None) if etf_data.index.tz else etf_data.index
+
 etf_data['YM'] = etf_data.index.to_period('M').astype(str).str.replace('-', '')
 df_lists = etf_data.groupby('YM')['Close'].last().reset_index().rename(columns={'YM': 'YM', 'Close': 'INDEX'})
 
@@ -339,3 +341,4 @@ def tts(response_text):
 
 # ChatGPT 응답을 음성으로 재생
 # tts(chatgpt_response)
+
