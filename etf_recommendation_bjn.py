@@ -217,6 +217,20 @@ else:
     st.error(f"API 요청 실패: {response.status_code}")
     st.stop()
 
+# API 요청 및 데이터 수집
+if response.status_code == 200:
+    data = StringIO(response.text)
+    df = pd.read_csv(data)
+    
+    # 디버깅: 데이터 확인
+    st.write("--- API 응답 디버깅 ---")
+    st.write(f"컬럼: {df.columns.tolist()}")
+    st.write(f"데이터 shape: {df.shape}")
+    st.write(df.head())
+else:
+    st.error(f"API 요청 실패: {response.status_code}")
+    st.stop()
+
 # ETF 데이터 필터링
 etf_df = df[df['assetType'] == 'ETF']
 active_etf_df = etf_df[etf_df['status'] == 'Active']
@@ -464,6 +478,7 @@ st.write(chatgpt_response)
 
 # ChatGPT 응답을 음성으로 재생
 tts(chatgpt_response)
+
 
 
 
