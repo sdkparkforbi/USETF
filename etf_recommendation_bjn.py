@@ -85,9 +85,20 @@ def calculate_dividend_frequency(dividends):
 ticker = yf.Ticker(etf_symbol)
 etf_data = ticker.history(period="max", interval='1mo')
 
-etf_data.index = etf_data.index.tz_convert(None) if etf_data.index.tz else etf_data.index
+# 데이터 확인
+if etf_data.empty:
+    st.error(f"{etf_symbol}의 데이터를 가져올 수 없습니다.")
+    st.stop()
+
+# timezone 안전 처리 (더 robust한 방식)
+try:
+    if hasattr(etf_data.index, 'tz') and etf_data.index.tz is not None:
+        etf_data.index = etf_data.index.tz_convert(None)
+except Exception:
+    pass  # timezone 처리 실패 시 무시
 
 etf_data['YM'] = etf_data.index.to_period('M').astype(str).str.replace('-', '')
+ 
 df_lists = etf_data.groupby('YM')['Close'].last().reset_index().rename(columns={'YM': 'YM', 'Close': 'INDEX'})
 
 # 그림 크기와 글자 크기 조정
@@ -341,4 +352,5 @@ def tts(response_text):
 
 # ChatGPT 응답을 음성으로 재생
 # tts(chatgpt_response)
+
 
