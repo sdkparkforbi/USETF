@@ -81,9 +81,26 @@ def calculate_dividend_frequency(dividends):
     else:
         return "불규칙한 배당"
 
-# ETF 티커 데이터 가져오기
+# ETF 티커 데이터 가져오기 (디버깅 포함)
 ticker = yf.Ticker(etf_symbol)
-etf_data = ticker.history(period="max", interval='1mo')
+
+# 디버깅: 상세 정보 출력
+st.write("--- 디버깅 정보 ---")
+st.write(f"선택한 ETF: {etf_symbol}")
+
+try:
+    etf_data = ticker.history(period="max", interval='1mo')
+    st.write(f"데이터 shape: {etf_data.shape}")
+    st.write(f"데이터 타입: {type(etf_data)}")
+    st.write(f"컬럼: {etf_data.columns.tolist()}")
+    st.write(etf_data.head())
+except Exception as e:
+    st.error(f"yfinance 에러: {e}")
+    st.stop()
+
+if etf_data.empty:
+    st.warning(f"⚠️ {etf_symbol}의 데이터를 가져올 수 없습니다.")
+    st.stop()
 
 # 데이터 확인
 if etf_data.empty:
@@ -352,5 +369,6 @@ def tts(response_text):
 
 # ChatGPT 응답을 음성으로 재생
 # tts(chatgpt_response)
+
 
 
