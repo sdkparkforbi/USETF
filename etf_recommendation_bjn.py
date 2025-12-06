@@ -3,7 +3,6 @@ import streamlit as st
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
-import yfinance as yf
 import pandas as pd
 from datetime import datetime
 from io import StringIO
@@ -11,72 +10,126 @@ import requests
 import warnings
 from bs4 import BeautifulSoup
 import os 
+import tempfile
+import base64
+from gtts import gTTS
 
 # 경고 메시지 무시 설정
 warnings.filterwarnings("ignore")
 
-# 나눔 폰트 설정
-font_path = os.path.join(os.path.dirname(__file__), 'NanumGothic.ttf')
-font_prop = fm.FontProperties(fname=font_path)  # 폰트 속성 설정
-plt.rcParams['font.family'] = 'NanumGothic'  # 그래프의 기본 폰트 설정
-plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
+# ========== Yahoo Finance 직접 호출 함수들 ==========
 
-# Streamlit 설정
-st.set_page_config(layout="centered")  # 레이아웃을 중앙 정렬로 설정
-st.markdown("<h1 style='font-size:32px; text-align: center;'>ETF 분석 및 ChatGPT 투자 조언</h1>", unsafe_allow_html=True)
-st.markdown("### ETF List 종목 확인")
-
-# Alpha Vantage API 키 입력
-api_key = st.secrets["AV_API_KEY"]
-
-
-
-# Alpha Vantage API 테스트
-st.write("--- Alpha Vantage API 테스트 ---")
-test_url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol=SPY&apikey={api_key}'
-test_response = requests.get(test_url)
-st.write(f"Status: {test_response.status_code}")
-st.write(test_response.json())
-
-
-# Alpha Vantage Symbol 검색 API URL
-url = 'https://www.alphavantage.co/query'
-
-# 요청 파라미터 설정
-params = {
-    'function': 'LISTING_STATUS',
-    'apikey': api_key
-}
-
-response = requests.get(url, params=params)
-
-# API 요청 및 데이터 수집
-if response.status_code == 200:
-    data = StringIO(response.text)
-    df = pd.read_csv(data)
-else:
-    st.write("API 요청 실패:", response.status_code)
-
-# ETF 데이터 필터링
-etf_df = df[df['assetType'] == 'ETF']
-active_etf_df = etf_df[etf_df['status'] == 'Active']
-
-# ETF 선택
-etf_symbol = st.selectbox("ETF 종목을 선택하세요:", active_etf_df['symbol'])
-
-url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol }&apikey={api_key}'
-r = requests.get(url)
-data = r.json()
+def get_etf_history(symbol, period="max", interval="1mo"):
+    """Yahoo Finance API 직접 호출 - 가격 데이터"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {
+        'range': period,
+        'interval': interval
+    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            result = data['chart']['result'][0]
+            timestamps = result['timestamp']
+            ohlcv = result['indicators']['quote'][0]
+            
+            df = pd.DataFrame({
+                'Open': ohlcv['open'],
+                'High': ohlcv['high'],
+                'Low': ohlcv['low'],
+                'Close': ohlcv['close'],
+                'Volume': ohlcv['volume']
+            }, index=pd.to_datetime(timestamps, unit='s'))
+            
+            return df
+    except Exception as e:
+        st.error(f"가격 데이터 수집 에러: {e}")
+    
+    return pd.DataFrame()
 
 
-# 배당 데이터를 수집하는 함수
-def get_dividend_data(etf_symbol):
-    etf = yf.Ticker(etf_symbol)
-    dividends = etf.dividends
-    return dividends
+def get_dividend_data(symbol):
+    """Yahoo Finance API 직접 호출 - 배당 데이터"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {
+        'range': '10y',
+        'interval': '1mo',
+        'events': 'div'
+    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            result = data['chart']['result'][0]
+            
+            if 'events' in result and 'dividends' in result['events']:
+                divs = result['events']['dividends']
+                div_data = [(pd.to_datetime(int(k), unit='s'), v['amount']) for k, v in divs.items()]
+                df = pd.DataFrame(div_data, columns=['Date', 'Dividend'])
+                df = df.set_index('Date').sort_index()
+                return df['Dividend']
+    except:
+        pass
+    
+    return pd.Series(dtype=float)
 
-# 배당 주기를 계산하는 함수
+
+def get_etf_info(symbol):
+    """Yahoo Finance API 직접 호출 - ETF 정보"""
+    url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
+    params = {
+        'modules': 'summaryProfile,summaryDetail,defaultKeyStatistics,fundProfile,price'
+    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            result = data['quoteSummary']['result'][0]
+            
+            info = {}
+            
+            # price 모듈에서 정보 추출
+            if 'price' in result:
+                price = result['price']
+                info['longName'] = price.get('longName', '정보 없음')
+            
+            # fundProfile 모듈에서 정보 추출
+            if 'fundProfile' in result:
+                fund = result['fundProfile']
+                info['fundFamily'] = fund.get('family', '정보 없음')
+                
+                if 'feesExpensesInvestment' in fund:
+                    fees = fund['feesExpensesInvestment']
+                    info['expenseRatio'] = fees.get('annualReportExpenseRatio', {}).get('raw', None)
+            
+            # summaryDetail 모듈에서 정보 추출
+            if 'summaryDetail' in result:
+                summary = result['summaryDetail']
+                info['dividendYield'] = summary.get('dividendYield', {}).get('raw', None)
+                info['totalAssets'] = summary.get('totalAssets', {}).get('raw', None)
+            
+            # defaultKeyStatistics 모듈에서 정보 추출
+            if 'defaultKeyStatistics' in result:
+                stats = result['defaultKeyStatistics']
+                info['category'] = stats.get('category', '정보 없음')
+                info['fundInceptionDate'] = stats.get('fundInceptionDate', {}).get('fmt', '정보 없음')
+            
+            return info
+    except Exception as e:
+        st.warning(f"ETF 정보 수집 에러: {e}")
+    
+    return {}
+
+
 def calculate_dividend_frequency(dividends):
+    """배당 주기를 계산하는 함수"""
     if len(dividends) < 2:
         return "배당 데이터가 부족합니다."
 
@@ -92,53 +145,111 @@ def calculate_dividend_frequency(dividends):
     else:
         return "불규칙한 배당"
 
-# ETF 티커 데이터 가져오기 (디버깅 포함)
-ticker = yf.Ticker(etf_symbol)
 
-# 디버깅: 상세 정보 출력
-st.write("--- 디버깅 정보 ---")
-st.write(f"선택한 ETF: {etf_symbol}")
+@st.cache_data(ttl=3600)
+def get_blog_content(web_url):
+    """블로그 정보를 가져오는 함수"""
+    blog_url = web_url.replace("blog", "m.blog")
+    try:
+        response = requests.get(blog_url)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            blog_title = soup.find("meta", property="og:title")['content']
+            blog_content = soup.find("div", class_="se-main-container").get_text("\n", strip=True)
+            return blog_title, blog_content
+        else:
+            return None, f"HTTP 요청 실패: {response.status_code}"
+    except Exception as e:
+        return None, f"블로그 크롤링 에러: {e}"
 
-try:
-    etf_data = ticker.history(period="max", interval='1mo')
-    st.write(f"데이터 shape: {etf_data.shape}")
-    st.write(f"데이터 타입: {type(etf_data)}")
-    st.write(f"컬럼: {etf_data.columns.tolist()}")
-    st.write(etf_data.head())
-except Exception as e:
-    st.error(f"yfinance 에러: {e}")
+
+def tts(response_text):
+    """TTS: 텍스트를 음성으로 변환하여 Streamlit 페이지에 표시"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+            tts_obj = gTTS(text=response_text, lang="ko")
+            tts_obj.save(fp.name)
+            
+            with open(fp.name, "rb") as f:
+                data = f.read()
+                b64 = base64.b64encode(data).decode()
+                audio_html = f"""
+                    <audio autoplay="True" controls>
+                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+                    </audio>
+                """
+                st.markdown(audio_html, unsafe_allow_html=True)
+            
+            os.unlink(fp.name)
+    except Exception as e:
+        st.error(f"음성 변환 에러: {e}")
+
+
+# ========== 메인 앱 시작 ==========
+
+# 나눔 폰트 설정
+font_path = os.path.join(os.path.dirname(__file__), 'NanumGothic.ttf')
+font_prop = fm.FontProperties(fname=font_path)
+plt.rcParams['font.family'] = 'NanumGothic'
+plt.rcParams['axes.unicode_minus'] = False
+
+# Streamlit 설정
+st.set_page_config(layout="centered")
+st.markdown("<h1 style='font-size:32px; text-align: center;'>ETF 분석 및 ChatGPT 투자 조언</h1>", unsafe_allow_html=True)
+st.markdown("### ETF List 종목 확인")
+
+# Alpha Vantage API 키
+api_key = st.secrets["AV_API_KEY"]
+
+# Alpha Vantage Symbol 검색 API URL
+url = 'https://www.alphavantage.co/query'
+params = {
+    'function': 'LISTING_STATUS',
+    'apikey': api_key
+}
+
+response = requests.get(url, params=params)
+
+if response.status_code == 200:
+    data = StringIO(response.text)
+    df = pd.read_csv(data)
+else:
+    st.error(f"API 요청 실패: {response.status_code}")
     st.stop()
+
+# ETF 데이터 필터링
+etf_df = df[df['assetType'] == 'ETF']
+active_etf_df = etf_df[etf_df['status'] == 'Active']
+
+# ETF 선택
+etf_symbol = st.selectbox("ETF 종목을 선택하세요:", active_etf_df['symbol'])
+
+# Alpha Vantage ETF 프로필
+url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol}&apikey={api_key}'
+r = requests.get(url)
+av_data = r.json()
+
+# ETF 가격 데이터 가져오기 (Yahoo Finance 직접 호출)
+etf_data = get_etf_history(etf_symbol, period="max", interval="1mo")
 
 if etf_data.empty:
-    st.warning(f"⚠️ {etf_symbol}의 데이터를 가져올 수 없습니다.")
+    st.warning(f"⚠️ {etf_symbol}의 데이터를 가져올 수 없습니다. 다른 ETF를 선택해 주세요.")
     st.stop()
-
-# 데이터 확인
-if etf_data.empty:
-    st.error(f"{etf_symbol}의 데이터를 가져올 수 없습니다.")
-    st.stop()
-
-# timezone 안전 처리 (더 robust한 방식)
-try:
-    if hasattr(etf_data.index, 'tz') and etf_data.index.tz is not None:
-        etf_data.index = etf_data.index.tz_convert(None)
-except Exception:
-    pass  # timezone 처리 실패 시 무시
 
 etf_data['YM'] = etf_data.index.to_period('M').astype(str).str.replace('-', '')
- 
 df_lists = etf_data.groupby('YM')['Close'].last().reset_index().rename(columns={'YM': 'YM', 'Close': 'INDEX'})
 
-# 그림 크기와 글자 크기 조정
+# 종가 추이 그래프
 plt.figure(figsize=(8, 4))
 plt.plot(df_lists['YM'], df_lists['INDEX'], marker='o', linestyle='-', color='b')
-plt.xticks(df_lists['YM'][::36], rotation=45, fontsize=8)  # X축 라벨 간격과 폰트 크기 조정
+plt.xticks(df_lists['YM'][::36], rotation=45, fontsize=8)
 plt.title('ETF 종가 추이', font=font_prop, fontsize=16)
 plt.xlabel("Year-Month", fontsize=10)
 plt.ylabel("Closing Price", fontsize=10)
 st.pyplot(plt)
+plt.close()
 
-# 수익률 계산 함수 정의
+# 수익률 계산 함수
 def calculate_returns(df, periods):
     for period in periods:
         col_name = f'return_{period}m'
@@ -147,17 +258,17 @@ def calculate_returns(df, periods):
 
 # 특정 시점으로부터의 수익률 계산
 periods = [1, 2, 3, 6, 12, 24, 36, 48, 60]
-df_with_returns = calculate_returns(df_lists, periods)
+df_with_returns = calculate_returns(df_lists.copy(), periods)
 
-# 수익률 그래프 생성
+# 수익률 그래프
 plt.figure(figsize=(8, 4))
 for period in periods:
     plt.plot(
         df_with_returns['YM'],
         df_with_returns[f'return_{period}m'],
         label=f'Return {period} months',
-        marker='o',  # 선 위에 점 표시
-        markersize=4  # 점 크기 조절
+        marker='o',
+        markersize=4
     )
 
 plt.xlabel('Year-Month', fontsize=10)
@@ -167,8 +278,9 @@ plt.legend(fontsize=8)
 plt.grid(True)
 plt.xticks(df_with_returns['YM'][::36], rotation=45, fontsize=8)
 st.pyplot(plt)
+plt.close()
 
-# 연간화 수익률 계산 함수 정의
+# 연간화 수익률 계산 함수
 def calculate_annualized_returns(df, periods):
     for period in periods:
         col_name = f'return_{period}m'
@@ -177,9 +289,9 @@ def calculate_annualized_returns(df, periods):
         df[annualized_col_name] = (1 + df[col_name]) ** (12 / period) - 1
     return df
 
-df_with_annualized_returns = calculate_annualized_returns(df_lists, periods)
+df_with_annualized_returns = calculate_annualized_returns(df_lists.copy(), periods)
 
-# 각 기간에 대한 통계치 계산
+# 통계치 계산
 annualized_returns_stats = []
 for period in periods:
     col_name = f'annualized_return_{period}m'
@@ -201,83 +313,77 @@ for period in periods:
 
 annualized_returns_df = pd.DataFrame(annualized_returns_stats)
 
-# Streamlit에서 테이블로 표시
 st.write("Annualized Returns Table")
 st.dataframe(annualized_returns_df)
 
-# Yahoo Finance에서 ETF 정보 수집
-etf = yf.Ticker(etf_symbol)
+# ETF 정보 수집 (Yahoo Finance 직접 호출)
+etf_info = get_etf_info(etf_symbol)
+dividends = get_dividend_data(etf_symbol)
+
 etf_info_yf = {
-    "ETF 이름": etf.info.get("longName", "정보 없음"),
-    "운용사": etf.info.get("fundFamily", "정보 없음"),
-    "운용 보수(Expense Ratio)": f"{etf.info.get('expenseRatio', 0) * 100:.2f}%" if etf.info.get("expenseRatio") else "정보 없음",
-    "배당 수익률": f"{etf.info.get('dividendYield', 0) * 100:.2f}%" if etf.info.get("dividendYield") else "정보 없음",
-    "배당 주기": calculate_dividend_frequency(get_dividend_data(etf_symbol)),
-    "총 자산": f"{etf.info.get('totalAssets', '정보 없음'):,}" if etf.info.get("totalAssets") else "정보 없음",
-    "카테고리": etf.info.get("category", "정보 없음"),
-    "설립 연도": etf.info.get("fundInceptionDate", "정보 없음")
+    "ETF 이름": etf_info.get("longName", "정보 없음"),
+    "운용사": etf_info.get("fundFamily", "정보 없음"),
+    "운용 보수(Expense Ratio)": f"{etf_info.get('expenseRatio', 0) * 100:.2f}%" if etf_info.get("expenseRatio") else "정보 없음",
+    "배당 수익률": f"{etf_info.get('dividendYield', 0) * 100:.2f}%" if etf_info.get("dividendYield") else "정보 없음",
+    "배당 주기": calculate_dividend_frequency(dividends),
+    "총 자산": f"{etf_info.get('totalAssets', 0):,}" if etf_info.get("totalAssets") else "정보 없음",
+    "카테고리": etf_info.get("category", "정보 없음"),
+    "설립 연도": etf_info.get("fundInceptionDate", "정보 없음")
 }
 
-# 최신 데이터에 따른 상위 보유 종목 및 섹터 분포 추가
-top_10_data = list(data['holdings'][:10])  # 슬라이싱 후 명시적으로 리스트로 변환
-filtered_top_10 = [{ item['description']: item['weight']} for item in top_10_data]
-etf_info_yf["상위 보유 종목"] = filtered_top_10
-sector_info = [{ item['sector']: item['weight']} for item in data['sectors']]
-etf_info_yf["섹터 분포"] = sector_info
+# Alpha Vantage에서 상위 보유 종목 및 섹터 분포
+if 'holdings' in av_data and av_data['holdings']:
+    top_10_data = list(av_data['holdings'][:10])
+    filtered_top_10 = [{item['description']: item['weight']} for item in top_10_data]
+    etf_info_yf["상위 보유 종목"] = filtered_top_10
+else:
+    etf_info_yf["상위 보유 종목"] = []
 
-# 최근 5년간 월별 종가 데이터 수집 (5개만 표시)
-etf_prices = etf.history(period="5y", interval="1mo")["Close"]
-price_text = etf_prices.tail(5).to_string(index=False)
+if 'sectors' in av_data and av_data['sectors']:
+    sector_info = [{item['sector']: item['weight']} for item in av_data['sectors']]
+    etf_info_yf["섹터 분포"] = sector_info
+else:
+    etf_info_yf["섹터 분포"] = []
 
-# ETF 기본 정보 텍스트 구성
+# 최근 5년간 월별 종가 데이터
+etf_5y_data = get_etf_history(etf_symbol, period="5y", interval="1mo")
+if not etf_5y_data.empty:
+    price_text = etf_5y_data["Close"].tail(5).to_string(index=False)
+else:
+    price_text = "데이터 없음"
+
+# 텍스트 구성
 etf_info_text = "\n".join([f"{key}: {value}" for key, value in etf_info_yf.items() if key not in ['상위 보유 종목', '섹터 분포']])
 
-# 상위 보유 종목 텍스트 구성
-holdings_text = "\n".join([f"{list(item.keys())[0]}: {list(item.values())[0]}" for item in etf_info_yf["상위 보유 종목"]])
+if etf_info_yf["상위 보유 종목"]:
+    holdings_text = "\n".join([f"{list(item.keys())[0]}: {list(item.values())[0]}" for item in etf_info_yf["상위 보유 종목"]])
+else:
+    holdings_text = "정보 없음"
 
-# 섹터 분포 텍스트 구성
-sector_text = "\n".join([f"{list(item.keys())[0]}: {list(item.values())[0]}" for item in etf_info_yf["섹터 분포"]])
+if etf_info_yf["섹터 분포"]:
+    sector_text = "\n".join([f"{list(item.keys())[0]}: {list(item.values())[0]}" for item in etf_info_yf["섹터 분포"]])
+else:
+    sector_text = "정보 없음"
 
-# 블로그 정보를 가져오는 함수
-def get_blog_content(web_url):
-    blog_url = web_url.replace("blog", "m.blog")  # 모바일 버전으로 변환
-    response = requests.get(blog_url)
-
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
-        blog_title = soup.find("meta", property="og:title")['content']
-        blog_content = soup.find("div", class_="se-main-container").get_text("\n", strip=True)  # '\n'을 사용해 가독성 높임
-        return blog_title, blog_content
-    else:
-        return None, f"HTTP 요청 실패: {response.status_code}"
-
-# 각 블로그 항목별로 내용 가져오기
-
-# 1. 매매 가능 계좌
+# 블로그 정보 가져오기
 account_url = "https://blog.naver.com/jung2598123/223613727928"
 account_title, account_content = get_blog_content(account_url)
 
-# 2. 매매 시간
 time_url = "http://blog.naver.com/jung2598123/223613727928"
 time_title, time_content = get_blog_content(time_url)
 
-# 3. 세금
 tax_url = "http://blog.naver.com/jung2598123/223613736933"
 tax_title, tax_content = get_blog_content(tax_url)
 
-# 4. 보수수수료
 fee_url = "https://blog.naver.com/jung2598123/223613746967"
 fee_title, fee_content = get_blog_content(fee_url)
 
-# 5. 통합증거금 서비스
 integrated_margin_url = "http://blog.naver.com/jung2598123/223613746967"
 integrated_margin_title, integrated_margin_content = get_blog_content(integrated_margin_url)
 
-# 6. 소수점 매매
 fractional_trading_url = "https://blog.naver.com/jung2598123/223613721912"
 fractional_trading_title, fractional_trading_content = get_blog_content(fractional_trading_url)
 
-# 7. 증거금 비율
 margin_ratio_url = "http://blog.naver.com/jung2598123/223613721912"
 margin_ratio_title, margin_ratio_content = get_blog_content(margin_ratio_url)
 
@@ -315,13 +421,13 @@ prompt = f"""
 세개의 문단으로 간단하게 존댓말로 설명해 주세요. 중요한 건 특정 증권사를 언급하면 안됩니다. 
 """
 
-# OpenAI API Key 설정 (환경 변수에서 불러오기)
-cgpt_api_key = st.secrets["OPENAI_API_KEY"]  # 환경 변수에 API Key 저장 필요
+# OpenAI API Key
+cgpt_api_key = st.secrets["OPENAI_API_KEY"]
 
-# ChatGPT에게 질문을 요청하는 함수
+# ChatGPT 함수
 def ask_chatgpt(prompt):
     headers = {
-        "Authorization": f"Bearer {cgpt_api_key }",
+        "Authorization": f"Bearer {cgpt_api_key}",
         "Content-Type": "application/json"
     }
 
@@ -344,42 +450,14 @@ def ask_chatgpt(prompt):
         error_message = response.json().get('error', {}).get('message', '알 수 없는 오류')
         return f"Error: {response.status_code}, {error_message}"
 
+# ChatGPT 응답 생성
 chatgpt_response = ask_chatgpt(prompt)
 st.subheader("ChatGPT 응답")
 st.write(chatgpt_response)
 
-# TTS 라이브러리 임포트
-from gtts import gTTS
-import base64
-import os
-
-# TTS: 텍스트를 음성으로 변환하여 Streamlit 페이지에 표시
-def tts(response_text):
-    filename = "output.mp3"
-
-    # 기존 파일 삭제 (덮어쓰기 보장)
-    if os.path.exists(filename):
-        os.remove(filename)
-        
-    tts = gTTS(text=response_text, lang="ko")
-    tts.save(filename)
-
-    # mp3 파일을 base64로 인코딩하여 Streamlit에 표시
-    with open(filename, "rb") as f:
-        data = f.read()
-        b64 = base64.b64encode(data).decode()
-        audio_html = f"""
-            <audio autoplay="True" controls>
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-        """
-        st.markdown(audio_html, unsafe_allow_html=True)
-
-    # 사용이 끝난 파일 삭제
-    os.remove(filename)
-
 # ChatGPT 응답을 음성으로 재생
-# tts(chatgpt_response)
+tts(chatgpt_response)
+
 
 
 
