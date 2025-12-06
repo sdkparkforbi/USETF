@@ -29,6 +29,16 @@ st.markdown("### ETF List 종목 확인")
 # Alpha Vantage API 키 입력
 api_key = st.secrets["AV_API_KEY"]
 
+
+
+# Alpha Vantage API 테스트
+st.write("--- Alpha Vantage API 테스트 ---")
+test_url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol=SPY&apikey={api_key}'
+test_response = requests.get(test_url)
+st.write(f"Status: {test_response.status_code}")
+st.write(test_response.json())
+
+
 # Alpha Vantage Symbol 검색 API URL
 url = 'https://www.alphavantage.co/query'
 
@@ -57,6 +67,7 @@ etf_symbol = st.selectbox("ETF 종목을 선택하세요:", active_etf_df['symbo
 url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol }&apikey={api_key}'
 r = requests.get(url)
 data = r.json()
+
 
 # 배당 데이터를 수집하는 함수
 def get_dividend_data(etf_symbol):
@@ -369,6 +380,7 @@ def tts(response_text):
 
 # ChatGPT 응답을 음성으로 재생
 # tts(chatgpt_response)
+
 
 
 
