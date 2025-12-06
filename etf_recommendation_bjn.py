@@ -17,6 +17,41 @@ from gtts import gTTS
 # 경고 메시지 무시 설정
 warnings.filterwarnings("ignore")
 
+# ========== 인기 ETF 목록 (API 대신 사용) ==========
+
+POPULAR_ETFS = {
+    'SPY': 'SPDR S&P 500 ETF Trust',
+    'QQQ': 'Invesco QQQ Trust',
+    'VOO': 'Vanguard S&P 500 ETF',
+    'VTI': 'Vanguard Total Stock Market ETF',
+    'IWM': 'iShares Russell 2000 ETF',
+    'EFA': 'iShares MSCI EAFE ETF',
+    'EEM': 'iShares MSCI Emerging Markets ETF',
+    'VEA': 'Vanguard FTSE Developed Markets ETF',
+    'VWO': 'Vanguard FTSE Emerging Markets ETF',
+    'AGG': 'iShares Core U.S. Aggregate Bond ETF',
+    'BND': 'Vanguard Total Bond Market ETF',
+    'LQD': 'iShares iBoxx $ Investment Grade Corporate Bond ETF',
+    'TLT': 'iShares 20+ Year Treasury Bond ETF',
+    'GLD': 'SPDR Gold Shares',
+    'SLV': 'iShares Silver Trust',
+    'USO': 'United States Oil Fund',
+    'XLF': 'Financial Select Sector SPDR Fund',
+    'XLK': 'Technology Select Sector SPDR Fund',
+    'XLE': 'Energy Select Sector SPDR Fund',
+    'XLV': 'Health Care Select Sector SPDR Fund',
+    'XLI': 'Industrial Select Sector SPDR Fund',
+    'XLP': 'Consumer Staples Select Sector SPDR Fund',
+    'XLY': 'Consumer Discretionary Select Sector SPDR Fund',
+    'XLU': 'Utilities Select Sector SPDR Fund',
+    'XLB': 'Materials Select Sector SPDR Fund',
+    'XLRE': 'Real Estate Select Sector SPDR Fund',
+    'VNQ': 'Vanguard Real Estate ETF',
+    'ARKK': 'ARK Innovation ETF',
+    'SCHD': 'Schwab U.S. Dividend Equity ETF',
+    'JEPI': 'JPMorgan Equity Premium Income ETF',
+}
+
 # ========== Yahoo Finance 직접 호출 함수들 ==========
 
 def get_etf_history(symbol, period="max", interval="1mo"):
@@ -77,55 +112,6 @@ def get_dividend_data(symbol):
         pass
     
     return pd.Series(dtype=float)
-
-
-def get_etf_info(symbol):
-    """Yahoo Finance API 직접 호출 - ETF 정보"""
-    url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
-    params = {
-        'modules': 'summaryProfile,summaryDetail,defaultKeyStatistics,fundProfile,price'
-    }
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            result = data['quoteSummary']['result'][0]
-            
-            info = {}
-            
-            # price 모듈에서 정보 추출
-            if 'price' in result:
-                price = result['price']
-                info['longName'] = price.get('longName', '정보 없음')
-            
-            # fundProfile 모듈에서 정보 추출
-            if 'fundProfile' in result:
-                fund = result['fundProfile']
-                info['fundFamily'] = fund.get('family', '정보 없음')
-                
-                if 'feesExpensesInvestment' in fund:
-                    fees = fund['feesExpensesInvestment']
-                    info['expenseRatio'] = fees.get('annualReportExpenseRatio', {}).get('raw', None)
-            
-            # summaryDetail 모듈에서 정보 추출
-            if 'summaryDetail' in result:
-                summary = result['summaryDetail']
-                info['dividendYield'] = summary.get('dividendYield', {}).get('raw', None)
-                info['totalAssets'] = summary.get('totalAssets', {}).get('raw', None)
-            
-            # defaultKeyStatistics 모듈에서 정보 추출
-            if 'defaultKeyStatistics' in result:
-                stats = result['defaultKeyStatistics']
-                info['category'] = stats.get('category', '정보 없음')
-                info['fundInceptionDate'] = stats.get('fundInceptionDate', {}).get('fmt', '정보 없음')
-            
-            return info
-    except Exception as e:
-        st.warning(f"ETF 정보 수집 에러: {e}")
-    
-    return {}
 
 
 def calculate_dividend_frequency(dividends):
@@ -196,47 +182,18 @@ plt.rcParams['axes.unicode_minus'] = False
 # Streamlit 설정
 st.set_page_config(layout="centered")
 st.markdown("<h1 style='font-size:32px; text-align: center;'>ETF 분석 및 ChatGPT 투자 조언</h1>", unsafe_allow_html=True)
-st.markdown("### ETF List 종목 확인")
+st.markdown("### ETF 종목 선택")
 
 # Alpha Vantage API 키
 api_key = st.secrets["AV_API_KEY"]
 
-# Alpha Vantage Symbol 검색 API URL
-url = 'https://www.alphavantage.co/query'
-params = {
-    'function': 'LISTING_STATUS',
-    'apikey': api_key
-}
-
-response = requests.get(url, params=params)
-
-if response.status_code == 200:
-    data = StringIO(response.text)
-    df = pd.read_csv(data)
-else:
-    st.error(f"API 요청 실패: {response.status_code}")
-    st.stop()
-
-# API 요청 및 데이터 수집
-if response.status_code == 200:
-    data = StringIO(response.text)
-    df = pd.read_csv(data)
-    
-    # 디버깅: 데이터 확인
-    st.write("--- API 응답 디버깅 ---")
-    st.write(f"컬럼: {df.columns.tolist()}")
-    st.write(f"데이터 shape: {df.shape}")
-    st.write(df.head())
-else:
-    st.error(f"API 요청 실패: {response.status_code}")
-    st.stop()
-
-# ETF 데이터 필터링
-etf_df = df[df['assetType'] == 'ETF']
-active_etf_df = etf_df[etf_df['status'] == 'Active']
-
-# ETF 선택
-etf_symbol = st.selectbox("ETF 종목을 선택하세요:", active_etf_df['symbol'])
+# ETF 선택 (하드코딩된 인기 ETF 목록 사용)
+etf_symbols = list(POPULAR_ETFS.keys())
+etf_symbol = st.selectbox(
+    "ETF 종목을 선택하세요:", 
+    etf_symbols,
+    format_func=lambda x: f"{x} - {POPULAR_ETFS[x]}"
+)
 
 # Alpha Vantage ETF 프로필
 url = f'https://www.alphavantage.co/query?function=ETF_PROFILE&symbol={etf_symbol}&apikey={api_key}'
@@ -331,18 +288,17 @@ st.write("Annualized Returns Table")
 st.dataframe(annualized_returns_df)
 
 # ETF 정보 수집 (Alpha Vantage 데이터 활용)
-etf_info = get_etf_info(etf_symbol)
 dividends = get_dividend_data(etf_symbol)
 
-# Alpha Vantage 데이터에서 정보 추출
-etf_name = av_data.get('name', etf_symbol)  # ETF 이름
+# Alpha Vantage 데이터에서 정보 추출 (데이터 없으면 기본값 사용)
+etf_name = av_data.get('name', POPULAR_ETFS.get(etf_symbol, etf_symbol))
 expense_ratio = av_data.get('net_expense_ratio', None)
 dividend_yield = av_data.get('dividend_yield', None)
 net_assets = av_data.get('net_assets', None)
 inception_date = av_data.get('inception_date', '정보 없음')
 
 etf_info_yf = {
-    "ETF 이름": etf_name if etf_name else etf_symbol,
+    "ETF 이름": etf_name if etf_name else POPULAR_ETFS.get(etf_symbol, etf_symbol),
     "운용사": av_data.get('asset_class', '정보 없음'),
     "운용 보수(Expense Ratio)": f"{float(expense_ratio) * 100:.2f}%" if expense_ratio else "정보 없음",
     "배당 수익률": f"{float(dividend_yield) * 100:.2f}%" if dividend_yield else "정보 없음",
@@ -351,7 +307,7 @@ etf_info_yf = {
     "카테고리": av_data.get('asset_class', '정보 없음'),
     "설립 연도": inception_date
 }
-  
+
 # Alpha Vantage에서 상위 보유 종목 및 섹터 분포
 if 'holdings' in av_data and av_data['holdings']:
     top_10_data = list(av_data['holdings'][:10])
