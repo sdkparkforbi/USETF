@@ -316,21 +316,28 @@ annualized_returns_df = pd.DataFrame(annualized_returns_stats)
 st.write("Annualized Returns Table")
 st.dataframe(annualized_returns_df)
 
-# ETF 정보 수집 (Yahoo Finance 직접 호출)
+# ETF 정보 수집 (Alpha Vantage 데이터 활용)
 etf_info = get_etf_info(etf_symbol)
 dividends = get_dividend_data(etf_symbol)
 
-etf_info_yf = {
-    "ETF 이름": etf_info.get("longName", "정보 없음"),
-    "운용사": etf_info.get("fundFamily", "정보 없음"),
-    "운용 보수(Expense Ratio)": f"{etf_info.get('expenseRatio', 0) * 100:.2f}%" if etf_info.get("expenseRatio") else "정보 없음",
-    "배당 수익률": f"{etf_info.get('dividendYield', 0) * 100:.2f}%" if etf_info.get("dividendYield") else "정보 없음",
-    "배당 주기": calculate_dividend_frequency(dividends),
-    "총 자산": f"{etf_info.get('totalAssets', 0):,}" if etf_info.get("totalAssets") else "정보 없음",
-    "카테고리": etf_info.get("category", "정보 없음"),
-    "설립 연도": etf_info.get("fundInceptionDate", "정보 없음")
-}
+# Alpha Vantage 데이터에서 정보 추출
+etf_name = av_data.get('name', etf_symbol)  # ETF 이름
+expense_ratio = av_data.get('net_expense_ratio', None)
+dividend_yield = av_data.get('dividend_yield', None)
+net_assets = av_data.get('net_assets', None)
+inception_date = av_data.get('inception_date', '정보 없음')
 
+etf_info_yf = {
+    "ETF 이름": etf_name if etf_name else etf_symbol,
+    "운용사": av_data.get('asset_class', '정보 없음'),
+    "운용 보수(Expense Ratio)": f"{float(expense_ratio) * 100:.2f}%" if expense_ratio else "정보 없음",
+    "배당 수익률": f"{float(dividend_yield) * 100:.2f}%" if dividend_yield else "정보 없음",
+    "배당 주기": calculate_dividend_frequency(dividends),
+    "총 자산": f"${int(net_assets):,}" if net_assets else "정보 없음",
+    "카테고리": av_data.get('asset_class', '정보 없음'),
+    "설립 연도": inception_date
+}
+  
 # Alpha Vantage에서 상위 보유 종목 및 섹터 분포
 if 'holdings' in av_data and av_data['holdings']:
     top_10_data = list(av_data['holdings'][:10])
@@ -457,6 +464,7 @@ st.write(chatgpt_response)
 
 # ChatGPT 응답을 음성으로 재생
 tts(chatgpt_response)
+
 
 
 
